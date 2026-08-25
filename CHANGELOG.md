@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Publish one full CLI per platform and Linux amd64/arm64 Docker images built from the same binaries.
 - Follow a minor-release/development-snapshot cycle with versioned S3 downloads, evergreen channels, build metadata, and SHA-256 checksums.
 
+### Fixed
+- Isolated seeded random number generators and locale settings per VM so parallel scripts cannot interfere with one another.
+
 ## [0.5.0] - 2026-03-18
 
 ### Added
