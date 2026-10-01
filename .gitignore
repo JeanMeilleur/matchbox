@@ -1,5 +1,6 @@
 target/
 **/target/
+/scripts/__pycache__/
 /stubs/
 *.wasm
 *.bxb

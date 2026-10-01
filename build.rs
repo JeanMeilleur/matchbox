@@ -53,6 +53,10 @@ fn main() {
 
     println!("cargo:rustc-env=GIT_COMMIT={}", commit);
     println!("cargo:rustc-env=BUILD_DATE={}", date);
+    println!("cargo:rerun-if-env-changed=MATCHBOX_BUILD_VERSION");
+    let version = env::var("MATCHBOX_BUILD_VERSION")
+        .unwrap_or_else(|_| env::var("CARGO_PKG_VERSION").unwrap());
+    println!("cargo:rustc-env=MATCHBOX_BUILD_VERSION={}", version);
 
     // 3. Build the runner stub (Independent of Workspace)
     let root_dir = env::var("CARGO_MANIFEST_DIR").unwrap();

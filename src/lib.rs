@@ -1157,7 +1157,7 @@ fn run_lambda_deploy(args: &[String]) -> Result<()> {
 fn print_version() {
     let commit = env!("GIT_COMMIT");
     let date = env!("BUILD_DATE");
-    let version = env!("CARGO_PKG_VERSION");
+    let version = env!("MATCHBOX_BUILD_VERSION");
     println!("matchbox version {}", version);
     println!("commit: {}", commit);
     println!("built on: {}", date);

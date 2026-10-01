@@ -1,0 +1,15 @@
+# Package the same full CLI binaries that CI publishes in GitHub releases.
+# Match the Linux CI build environment's glibc version.
+FROM ubuntu:24.04
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG TARGETARCH
+COPY --chmod=755 docker-dist/matchbox-${TARGETARCH} /usr/local/bin/matchbox
+
+WORKDIR /app
+EXPOSE 8080
+ENTRYPOINT ["matchbox"]
+CMD ["--help"]

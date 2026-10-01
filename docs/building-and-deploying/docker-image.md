@@ -6,6 +6,8 @@ MatchBox publishes a general-purpose Docker image to GitHub Container Registry:
 ghcr.io/ortus-boxlang/matchbox
 ```
 
+The image supports Linux `amd64` and `arm64` and packages the same full CLI binaries published in GitHub releases, using `Dockerfile.release`. The existing `Dockerfile` remains available for local source builds.
+
 The image runs the main `matchbox` CLI as its entrypoint. That makes it useful for CI builds, direct script execution, bytecode compilation, WASM/native artifact generation, and webroot serving without installing MatchBox on the host.
 
 ---
@@ -23,6 +25,7 @@ Develop snapshots publish:
 
 | Tag | Description |
 | :--- | :--- |
+| `vX.Y.Z-snapshot` | Snapshot of the next base version in `Cargo.toml` |
 | `develop` | Latest build from the `develop` branch |
 | `snapshot` | Rolling snapshot alias |
 | `be` | Rolling BE/development image alias |
@@ -52,6 +55,8 @@ docker run --rm -v "$PWD:/app" ghcr.io/ortus-boxlang/matchbox:latest my_script.b
 ```
 
 Because `matchbox` is the entrypoint, arguments after the image name are passed directly to MatchBox.
+
+The CLI's `--version` output and the image's `org.opencontainers.image.version` label include the build number, for example `0.11.0-snapshot+123`. Docker tags omit the `+123` metadata. After a successful stable release, CI increments `develop` to the next minor version and starts its snapshot build.
 
 ---
 

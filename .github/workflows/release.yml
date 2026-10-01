@@ -4,16 +4,65 @@ on:
   push:
     branches:
       - master
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      snapshot:
+        description: Build the next-version development snapshot
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: write
   packages: write
+  actions: write
+
+# Serialize stable releases. The snapshot caller cancels superseded builds.
+concurrency:
+  group: matchbox-release-${{ inputs.snapshot && 'snapshot' || 'stable' }}
+  cancel-in-progress: false
+
+env:
+  SNAPSHOT: ${{ inputs.snapshot || false }}
 
 jobs:
+  version:
+    name: Prepare release version
+    runs-on: ubuntu-latest
+    outputs:
+      base_version: ${{ steps.metadata.outputs.base_version }}
+      version: ${{ steps.metadata.outputs.version }}
+      build_version: ${{ steps.metadata.outputs.build_version }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      next_version: ${{ steps.metadata.outputs.next_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test release helpers
+        run: python3 -m unittest discover -s scripts -p test_release.py
+      - name: Version metadata
+        id: metadata
+        run: |
+          ARGS=()
+          if [ "$SNAPSHOT" = true ]; then ARGS+=(--snapshot); fi
+          python3 scripts/release.py metadata "${ARGS[@]}" \
+            --build-id "$GITHUB_RUN_NUMBER" --revision "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - name: Refuse to replace a stable release
+        if: inputs.snapshot != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.tag }}
+        run: |
+          COUNT=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$RELEASE_TAG" \
+            --jq "[.[] | select(.ref == \"refs/tags/$RELEASE_TAG\")] | length")
+          if [ "$COUNT" != 0 ]; then
+            echo "::error::Tag $RELEASE_TAG already exists. Merge the next develop version before releasing."
+            exit 1
+          fi
+
   test:
     name: Test - ${{ matrix.os }}
+    needs: version
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
@@ -94,10 +143,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             targets: x86_64-unknown-linux-gnu, i686-unknown-linux-gnu, wasm32-wasip1, wasm32-unknown-unknown
             tag: linux-x86
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             targets: aarch64-unknown-linux-gnu, armv7-unknown-linux-gnueabihf
             tag: linux-arm
           - os: macos-latest
@@ -315,25 +364,26 @@ jobs:
           path: all-stubs/*
 
   build-clis:
-    name: Build Fat CLI - ${{ matrix.target }}
-    needs: aggregate-stubs
+    name: Build CLI - ${{ matrix.target }}
+    needs: [aggregate-stubs, version]
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      MATCHBOX_BUILD_VERSION: ${{ needs.version.outputs.build_version }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             output_name: matchbox-linux-x64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: i686-unknown-linux-gnu
             output_name: matchbox-linux-x86
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: aarch64-unknown-linux-gnu
             output_name: matchbox-linux-arm64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: armv7-unknown-linux-gnueabihf
             output_name: matchbox-linux-armv7
           - os: macos-latest
@@ -392,7 +442,21 @@ jobs:
           restore-keys: |
             host-${{ runner.os }}-cli-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}-
 
-      - name: Build All CLIs
+      - name: Install Cross-Compilers (Linux ARM)
+        if: matrix.target == 'aarch64-unknown-linux-gnu' || matrix.target == 'armv7-unknown-linux-gnueabihf'
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
+          version: 1.0
+
+      - name: Install Cross-Compilers (Linux x86)
+        if: matrix.target == 'i686-unknown-linux-gnu'
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: gcc-multilib libc6-dev-i386
+          version: 1.0
+
+      - name: Build CLI
         shell: bash
         run: |
           if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
@@ -401,24 +465,8 @@ jobs:
             export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
           fi
           
-          # 1. Slim CLI (no cross-compile, fewer embedded stubs — build first)
-          cargo build --release --target ${{ matrix.target }}
-          
-          # Save slim binary before the fat build overwrites it
-          EXT=""
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then EXT=".exe"; fi
-          mkdir -p dist
-          SLIM_NAME=$(echo "${{ matrix.output_name }}" | sed "s/matchbox/matchbox-slim/")
-          cp "target/${{ matrix.target }}/release/matchbox$EXT" "dist/$SLIM_NAME"
-          
-          # Force recompilation so the fat build picks up the cross-compile stubs
-          cargo clean -p matchbox
-          
-          # 2. Fat CLI (with cross-compile, all stubs embedded)
+          # One full-featured CLI, including the existing cross-platform stubs.
           cargo build --release --features cross-compile --target ${{ matrix.target }}
-          
-          # 3. Server CLI (standalone)
-          cargo build --release -p matchbox_server --target ${{ matrix.target }}
 
       - name: Prepare Artifacts
         shell: bash
@@ -426,33 +474,66 @@ jobs:
           EXT=""
           if [[ "${{ matrix.target }}" == *"windows"* ]]; then EXT=".exe"; fi
           
-          # 1. Fat CLI (already built, just copy)
+          mkdir -p dist
           cp "target/${{ matrix.target }}/release/matchbox$EXT" "dist/${{ matrix.output_name }}"
-          
-          # 2. Slim CLI (already saved during build step)
-          
-          # 3. Server CLI
-          SERVER_NAME=$(echo "${{ matrix.output_name }}" | sed "s/matchbox/matchbox-server/")
-          cp "target/${{ matrix.target }}/release/matchbox_server$EXT" "dist/$SERVER_NAME"
       
-      - name: Upload Fat CLI
+      - name: Upload CLI
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.output_name }}
-          path: dist/*
+          path: dist/${{ matrix.output_name }}
 
   build-image:
     name: Build Docker Image
-    needs: test
+    needs: [build-clis, version]
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get version from Cargo.toml
-        id: get_version
+      - name: Refuse a superseded snapshot
+        if: inputs.snapshot == true
         run: |
-          VERSION=$(grep "^version =" Cargo.toml | head -1 | cut -d '"' -f 2)
-          echo "VERSION=v$VERSION" >> $GITHUB_OUTPUT
+          HEAD_SHA=$(git ls-remote origin refs/heads/develop | cut -f1)
+          test "$HEAD_SHA" = "$GITHUB_SHA" || { echo '::error::A newer develop commit supersedes this snapshot'; exit 1; }
+
+      - name: Image tags
+        id: tags
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          {
+            echo 'tags<<EOF'
+            echo "$IMAGE:v$VERSION"
+            if [ "$SNAPSHOT" = true ]; then
+              echo "$IMAGE:develop"
+              echo "$IMAGE:be"
+              echo "$IMAGE:snapshot"
+            else
+              echo "$IMAGE:latest"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download Linux x64 CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: matchbox-linux-x64
+          path: docker-dist
+
+      - name: Download Linux ARM64 CLI
+        uses: actions/download-artifact@v4
+        with:
+          name: matchbox-linux-arm64
+          path: docker-dist
+
+      - name: Prepare Docker binaries
+        run: |
+          mv docker-dist/matchbox-linux-x64 docker-dist/matchbox-amd64
+          mv docker-dist/matchbox-linux-arm64 docker-dist/matchbox-arm64
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -465,51 +546,154 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Push Docker Image
+        id: image
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: Dockerfile.release
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.get_version.outputs.VERSION }}
-            ghcr.io/${{ github.repository }}:latest
+          tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.get_version.outputs.VERSION }}
+            org.opencontainers.image.version=${{ needs.version.outputs.build_version }}
+
+      - name: Smoke test both image architectures
+        run: |
+          for ARCH in amd64 arm64; do
+            docker run --rm --platform "linux/$ARCH" \
+              "ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}" --version
+          done
 
   publish:
-    name: Publish Release
-    needs: [build-clis, build-image]
+    name: Publish GitHub and S3 downloads
+    needs: [build-clis, build-image, version]
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BASE_VERSION: ${{ needs.version.outputs.base_version }}
+      CHANNEL: ${{ needs.version.outputs.channel }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get version from Cargo.toml
-        id: get_version
+      - name: Refuse a superseded snapshot
+        if: inputs.snapshot == true
         run: |
-          VERSION=$(grep "^version =" Cargo.toml | head -1 | cut -d '"' -f 2)
-          echo "VERSION=v$VERSION" >> $GITHUB_OUTPUT
+          HEAD_SHA=$(git ls-remote origin refs/heads/develop | cut -f1)
+          test "$HEAD_SHA" = "$GITHUB_SHA" || { echo '::error::A newer develop commit supersedes this snapshot'; exit 1; }
 
-      - name: Extract Changelog
-        id: extract_changelog
-        run: |
-          # Extract content between [Unreleased] and the next ## heading
-          sed -n '/## \[Unreleased\]/,/## /p' CHANGELOG.md | sed '1d;$d' > release_notes.md
-          echo "BODY_PATH=release_notes.md" >> $GITHUB_OUTPUT
-
-      - name: Download Fat CLIs
+      - name: Download CLIs
         uses: actions/download-artifact@v4
         with:
           path: release-assets
           pattern: matchbox-*
           merge-multiple: true
 
-      - name: Create Release
+      - name: Package checksums and version metadata
+        run: |
+          ARGS=()
+          if [ "$SNAPSHOT" = true ]; then ARGS+=(--snapshot); fi
+          python3 scripts/release.py package "${ARGS[@]}" \
+            --build-id "$GITHUB_RUN_NUMBER" --revision "$GITHUB_SHA" --directory release-assets
+
+      - name: Finalize stable changelog
+        if: inputs.snapshot != true
+        run: |
+          cp CHANGELOG.md ORIGINAL_CHANGELOG.md
+          python3 scripts/release.py finalize --released-version "$BASE_VERSION"
+
+      - name: Snapshot notes
+        if: inputs.snapshot == true
+        env:
+          BUILD_VERSION: ${{ needs.version.outputs.build_version }}
+        run: |
+          printf '%s\n' "Snapshot $BUILD_VERSION" "Revision: $GITHUB_SHA" '' \
+            'Download matchbox-<os>-<arch> for the full CLI. Docker supports Linux amd64 and arm64.' \
+            'SHA256SUMS and version.json describe this build.' > release_notes.md
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_ACCESS_SECRET }}
+          aws-region: us-east-1
+
+      - name: Upload versioned S3 downloads
+        run: |
+          CACHE_CONTROL='public,max-age=31536000,immutable'
+          if [ "$SNAPSHOT" = true ]; then CACHE_CONTROL='no-cache'; fi
+          aws s3 sync release-assets/ \
+            "s3://downloads.ortussolutions.com/ortussolutions/matchbox/$VERSION/" \
+            --acl public-read --cache-control "$CACHE_CONTROL"
+
+      - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ needs.version.outputs.build_version }}
           body_path: release_notes.md
           files: release-assets/*
+          fail_on_unmatched_files: true
           generate_release_notes: false
           draft: false
-          prerelease: false
+          prerelease: ${{ inputs.snapshot || false }}
+          make_latest: ${{ inputs.snapshot != true }}
+
+      - name: Save finalized changelog
+        if: inputs.snapshot != true
+        uses: actions/upload-artifact@v4
+        with:
+          name: finalized-changelog
+          path: |
+            CHANGELOG.md
+            ORIGINAL_CHANGELOG.md
+
+      - name: Upload evergreen S3 downloads
+        run: |
+          aws s3 sync release-assets/ \
+            "s3://downloads.ortussolutions.com/ortussolutions/matchbox/$CHANNEL/" \
+            --acl public-read --cache-control no-cache
+
+  prep-next-release:
+    name: Prepare the next minor release
+    if: inputs.snapshot != true
+    needs: [publish, version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    env:
+      RELEASE_VERSION: ${{ needs.version.outputs.base_version }}
+      NEXT_VERSION: ${{ needs.version.outputs.next_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: finalized-changelog
+          path: .release
+      - name: Commit finalized changelog and next development version
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          cp .release/CHANGELOG.md CHANGELOG.md
+          git add CHANGELOG.md
+          git commit -m "Finalize changelog for v$RELEASE_VERSION"
+          # Normal pushes refuse concurrent branch updates; never overwrite them.
+          git push origin HEAD:master
+          git fetch origin develop
+          git checkout -b prepare-next-release origin/develop
+          python3 scripts/release.py bump --released-version "$RELEASE_VERSION"
+          # Keep notes added during the release build under Unreleased.
+          python3 scripts/release.py prepare-changelog --released-version "$RELEASE_VERSION" \
+            --original-changelog .release/ORIGINAL_CHANGELOG.md --released-changelog .release/CHANGELOG.md
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "Prepare v$NEXT_VERSION development snapshots"
+          git push origin HEAD:develop
+      - name: Build the next-version snapshot
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run snapshot.yml --ref develop

@@ -4,7 +4,7 @@ A high-performance, native Rust implementation of the [BoxLang](https://github.c
 
 ## Quick Install
 
-These scripts will prompt you to choose between the **Latest Release** or **Snapshot** version and will install the full **Fat CLI** (which includes runner stubs for all deployment targets).
+These scripts will prompt you to choose between the **Latest Release** or **Snapshot** version and install the full CLI with embedded cross-platform runner stubs.
 
 **Linux / macOS:**
 ```bash
@@ -37,16 +37,30 @@ The Docker image uses `matchbox` as its entrypoint, so it can run scripts, build
 
 MatchBox aims for high compatibility with the core BoxLang specification. Most standard syntax, including Classes, User Defined Functions (UDFs), Closures, and Async programming, is fully supported. We are actively implementing additional Built-in Functions (BIFs) and expanding compatibility with the broader BoxLang ecosystem every day.
 
-## Release Variants
+## Release Downloads
 
-MatchBox is distributed in three distinct variants to suit different deployment needs:
+MatchBox publishes one full-featured CLI per supported OS/architecture and a Docker image:
 
-| Variant | Binary Name | Description | Best For... |
-| :--- | :--- | :--- | :--- |
-| **Fat CLI** | `matchbox` | The complete developer tool. Includes the VM, Compiler, REPL, and embedded runner stubs for all targets (Native, WASM, ESP32). | Local development, cross-compiling, and building standalone apps. |
-| **Slim CLI** | `matchbox-slim` | VM, Compiler, and REPL. Excludes embedded cross-compilation stubs to reduce binary size by ~20MB. | CI/CD pipelines and environments where only local execution is needed. |
-| **Server** | `matchbox-server` | An optimized, standalone web runtime for both webroot/BXM serving and routed app-server workloads. | Production web deployments, Docker containers, APIs, and edge hosting. |
-| **Docker Image** | `ghcr.io/ortus-boxlang/matchbox` | Containerized Fat CLI with `matchbox` as the entrypoint. | CI builds, direct script execution, webroot serving, and environments where you do not want to install MatchBox locally. |
+| Offering | Name | Description |
+| :--- | :--- | :--- |
+| **CLI** | `matchbox-<os>-<arch>` | VM, compiler, REPL, built-in web server, and embedded cross-platform runner stubs. |
+| **Docker Image** | `ghcr.io/ortus-boxlang/matchbox` | The same released CLI packaged for Linux `amd64` and `arm64`, with `matchbox` as the entrypoint. |
+
+Slim and standalone server binaries are no longer published. Their source/build options remain available; this changes distribution only. Browser/WASM packaging is deferred.
+
+### Release versioning and downloads
+
+`Cargo.toml` holds the next base version. Develop builds publish `<version>-snapshot+<build-number>`; a push to `master` releases that base version, tags it, and finalizes the changelog. Only after successful publication does CI advance `develop` to the next minor version and start its snapshot build. Stable tags are never overwritten.
+
+GitHub releases retain the platform filenames used by the installers and include `SHA256SUMS` and `version.json`. Downloads are also published under:
+
+```text
+https://downloads.ortussolutions.com/ortussolutions/matchbox/<version>/
+https://downloads.ortussolutions.com/ortussolutions/matchbox/latest/
+https://downloads.ortussolutions.com/ortussolutions/matchbox/snapshot/
+```
+
+For example, `0.11.0-snapshot/matchbox-linux-x64` is the version-keyed development download. Stable version directories are immutable; snapshot and evergreen channels are refreshed without long-lived caching. `version.json` records the build number, source revision, and binary checksums.
 
 ## Quick Start
 

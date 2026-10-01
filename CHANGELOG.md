@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Publish one full CLI per platform and Linux amd64/arm64 Docker images built from the same binaries.
+- Follow a minor-release/development-snapshot cycle with versioned S3 downloads, evergreen channels, build metadata, and SHA-256 checksums.
+
 ## [0.5.0] - 2026-03-18
 
 ### Added
