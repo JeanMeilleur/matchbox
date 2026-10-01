@@ -561,9 +561,13 @@ jobs:
 
       - name: Smoke test both image architectures
         run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          docker buildx imagetools inspect "$IMAGE@${{ steps.image.outputs.digest }}" --raw > image-index.json
           for ARCH in amd64 arm64; do
-            docker run --rm --platform "linux/$ARCH" \
-              "ghcr.io/${{ github.repository }}@${{ steps.image.outputs.digest }}" --version
+            # The classic Docker store cannot cache two platforms at one index digest.
+            DIGEST=$(jq -er --arg arch "$ARCH" \
+              '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' image-index.json)
+            docker run --rm --platform "linux/$ARCH" "$IMAGE@$DIGEST" --version
           done
 
   publish:
