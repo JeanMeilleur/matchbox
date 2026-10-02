@@ -1,0 +1,18 @@
+if (!directoryExists(".")) {
+    throw "native runner did not register the IO BIFs";
+}
+
+var args = cliGetArgs();
+if (!isStruct(args) || !isArray(args.positionals)) {
+    throw "native runner did not register the CLI BIFs";
+}
+
+var httpError = "";
+try {
+    http("");
+} catch (e) {
+    httpError = e.message;
+}
+if (httpError != "http() requires a URL") {
+    throw "native runner did not register the HTTP BIF";
+}

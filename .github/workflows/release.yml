@@ -203,16 +203,17 @@ jobs:
             echo "Building stub for $target..."
             
             # Setup linker for cross-compilation
-            CMD="cargo build --release --target $target"
+            # Keep runner BIFs aligned with the MatchBox CLI's default features.
+            FEATURES="bif-io,bif-http,bif-crypto,bif-cli"
             if [[ "$target" == "aarch64-unknown-linux-gnu" ]]; then
               export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
             elif [[ "$target" == "armv7-unknown-linux-gnueabihf" ]]; then
               export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
             elif [[ "$target" == "wasm32-unknown-unknown" ]]; then
-              CMD="$CMD --features js"
+              FEATURES="$FEATURES,js"
             fi
 
-            $CMD
+            cargo build --release --target "$target" --features "$FEATURES"
 
             # Determine source filename
             SRC_NAME="matchbox_runner"
@@ -449,6 +450,10 @@ jobs:
           packages: gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
           version: 1.0
 
+      - name: Add i386 Architecture
+        if: matrix.target == 'i686-unknown-linux-gnu'
+        run: sudo dpkg --add-architecture i386
+
       - name: Install Cross-Compilers (Linux x86)
         if: matrix.target == 'i686-unknown-linux-gnu'
         uses: awalsh128/cache-apt-pkgs-action@latest
@@ -467,6 +472,15 @@ jobs:
           
           # One full-featured CLI, including the existing cross-platform stubs.
           cargo build --release --features cross-compile --target ${{ matrix.target }}
+
+      - name: Smoke test native runner BIFs
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          target/${{ matrix.target }}/release/matchbox \
+            --target native \
+            --output "$RUNNER_TEMP/native-runner-bifs" \
+            tests/scripts/native_runner_bifs.bxs
+          "$RUNNER_TEMP/native-runner-bifs"
 
       - name: Prepare Artifacts
         shell: bash

@@ -7,12 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Expanded BoxLang Compatibility**: Added hundreds of BIFs across arrays, structs, strings, lists, queries, sets, binary operations, encryption, conversion, decision, formatting, i18n, filesystem, JDBC, cache, system, temporal, XML, ZIP, and stream APIs.
+- **Compatibility Transfer Suite**: Added more than 500 black-box tests transferred from the BoxLang JVM implementation, including operators, scopes, casters, runtime types, and global BIFs.
+- **Async Runtime APIs**: Added futures, executors, thread lifecycle functions, and async collection helpers.
+- **Watcher Lifecycle**: Added watcher registration, lookup, start, stop, restart, shutdown, and filesystem event dispatch.
+- **System Integration**: Added native process execution, YAML deserialization, system metadata helpers, SOAP client compatibility, and raw CLI key input.
+- **ESP32 HID and Web Control**: Added USB keyboard and mouse BIFs, browser-based HID controls, application configuration, diagnostics, and ESP32 examples.
+
 ### Changed
 - Publish one full CLI per platform and Linux amd64/arm64 Docker images built from the same binaries.
 - Follow a minor-release/development-snapshot cycle with versioned S3 downloads, evergreen channels, build metadata, and SHA-256 checksums.
+- **Non-blocking HTTP**: HTTP requests now use native futures so other fibers can continue running while requests are in flight; HTTP support is enabled by default.
+- **Prelude Performance**: Replaced quadratic sorting and deduplication paths with O(n log n) sorting and O(n) uniqueness checks.
+- **ESP32 Memory Use**: Shared compiled route data and reduced route and HTTP caches to lower embedded memory pressure.
+- **Runtime Isolation**: Watcher registries are now scoped to each VM instead of process-global state.
+- **Runtime Reliability**: System output streams now flush after writes and garbage collection thresholds are configurable.
 
 ### Fixed
+- Included MatchBox's default IO, HTTP, crypto, and CLI BIFs in standalone runner stubs.
+- Corrected `getTempDirectory()` to preserve either path separator on every host, including Windows paths returned with `/`.
+- Corrected BoxLang string parsing so backslashes remain literal and doubled quote delimiters produce one quote.
 - Isolated seeded random number generators and locale settings per VM so parallel scripts cannot interfere with one another.
+- Corrected BoxLang operator, tokenizer, temporal, filesystem, and cross-target compatibility behavior.
+- Normalized rooted and contracted paths across platforms, validated file access modes consistently, and made watcher event path tests platform-independent.
+- Added a tracked SOAP WSDL fixture so tests no longer depend on an external BoxLang checkout.
+- Improved compiler and runtime error messages with more accurate source locations and context.
+- Fixed ESP32 USB HID behavior and reduced route execution memory overhead.
 
 ## [0.5.0] - 2026-03-18
 
