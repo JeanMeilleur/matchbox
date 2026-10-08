@@ -373,6 +373,16 @@ fn collect_esp32_unsupported_features_in_stmt(
         StatementKind::Destructure { source, .. } => {
             collect_esp32_unsupported_features_in_expr(source, findings, embedded_web_enabled);
         }
+        StatementKind::DoWhile { condition, body } => {
+            collect_esp32_unsupported_features_in_expr(condition, findings, embedded_web_enabled);
+            for statement in body {
+                collect_esp32_unsupported_features_in_stmt(
+                    statement,
+                    findings,
+                    embedded_web_enabled,
+                );
+            }
+        }
     }
 }
 
@@ -773,7 +783,7 @@ pub fn run() -> Result<()> {
         enable_logging();
     }
 
-        if let Some(idx) = args.iter().position(|a| a == "--eval" || a == "-e") {
+    if let Some(idx) = args.iter().position(|a| a == "--eval" || a == "-e") {
         return run_eval(&args, idx);
     }
 
@@ -974,7 +984,6 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-
 /// CLI flags that consume the argument immediately following them.
 const VALUE_FLAGS: &[&str] = &[
     "--target", "--keep", "--output", "--module", "--chip", "--port", "--host", "--webroot",
@@ -1000,8 +1009,6 @@ fn positional_args(args: &[String]) -> Vec<String> {
     }
     out
 }
-
-
 
 /// Execute inline BoxLang source supplied via `--eval <source>` / `-e <source>`.
 /// Compiles through the normal pipeline (prelude + tree-shaking) and runs
@@ -1056,7 +1063,7 @@ fn run_eval(args: &[String], flag_index: usize) -> Result<()> {
         &[],
         &[],
     )
-    .map_err(|e| anyhow::anyhow!("Compiler Error: {}", e))?;
+    .map_err(|e| anyhow::anyhow!("Compiler Error in {}: {}", EVAL_NAME, e))?;
 
     chunk.reconstruct_functions();
 
@@ -1068,7 +1075,6 @@ fn run_eval(args: &[String], flag_index: usize) -> Result<()> {
 
     run_chunk_with_args(chunk, &[], script_args)
 }
-
 
 fn print_usage() {
     println!("Usage: matchbox [options] [file.bxs|file.bxb|directory]");
