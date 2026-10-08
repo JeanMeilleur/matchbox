@@ -1262,4 +1262,46 @@ mod eval_flag {
                 "{conflict} was accepted");
         }
     }
+
+    #[test]
+    fn prelude_function_works() {
+        // arrayUnique is implemented in the BoxLang prelude, not as a native BIF.
+        let out = eval("println(arrayUnique([1, 1, 2]).len());");
+        assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "2");
+    }
+
+    #[test]
+    fn compilation_error_exits_nonzero_and_names_eval() {
+        // Parses fine, but the compiler rejects `break` outside a loop.
+        let out = eval("break;");
+        assert!(!out.status.success());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("Compiler Error"), "unexpected stderr: {stderr}");
+        assert!(stderr.contains("<eval>"), "missing <eval> marker in: {stderr}");
+    }
+
+    #[test]
+    fn uncaught_runtime_error_reports_eval_location() {
+        let out = eval("throw(\"boom\");");
+        assert!(!out.status.success());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.contains("boom"), "unexpected stderr: {stderr}");
+        assert!(stderr.contains("<eval>"), "missing <eval> marker in: {stderr}");
+    }
+
+    #[test]
+    fn failures_leave_no_artifacts() {
+        let dir = tempdir().unwrap();
+        for src in ["function broken( {", "break;", "throw(\"boom\");"] {
+            let out = matchbox()
+                .current_dir(dir.path())
+                .arg("--eval")
+                .arg(src)
+                .output()
+                .unwrap();
+            assert!(!out.status.success(), "{src:?} unexpectedly succeeded");
+        }
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0, "artifacts left behind");
+    }
 }
