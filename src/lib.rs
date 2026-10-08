@@ -373,16 +373,6 @@ fn collect_esp32_unsupported_features_in_stmt(
         StatementKind::Destructure { source, .. } => {
             collect_esp32_unsupported_features_in_expr(source, findings, embedded_web_enabled);
         }
-        StatementKind::DoWhile { condition, body } => {
-            collect_esp32_unsupported_features_in_expr(condition, findings, embedded_web_enabled);
-            for statement in body {
-                collect_esp32_unsupported_features_in_stmt(
-                    statement,
-                    findings,
-                    embedded_web_enabled,
-                );
-            }
-        }
     }
 }
 
@@ -983,6 +973,34 @@ pub fn run() -> Result<()> {
 
     Ok(())
 }
+
+
+/// CLI flags that consume the argument immediately following them.
+const VALUE_FLAGS: &[&str] = &[
+    "--target", "--keep", "--output", "--module", "--chip", "--port", "--host", "--webroot",
+    "--check", "--eval", "-e",
+];
+
+/// Collect positional (non-flag) arguments, skipping values owned by a flag.
+fn positional_args(args: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 1;
+    while i < args.len() {
+        let a = &args[i];
+        if a.starts_with('-') {
+            if VALUE_FLAGS.contains(&a.as_str()) {
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        out.push(a.clone());
+        i += 1;
+    }
+    out
+}
+
 
 
 /// Execute inline BoxLang source supplied via `--eval <source>` / `-e <source>`.
