@@ -816,6 +816,64 @@ pub fn run() -> Result<()> {
     let no_std_lib = args.contains(&"--no-std-lib".to_string());
     let strip_source = args.contains(&"--strip-source".to_string());
     let is_serve = args.contains(&"--serve".to_string());
+
+
+    //=================================================
+    // implementing flag detection, conflict validation, 
+    // and input checks for --check <file>       
+    //===================================================
+
+
+    // Check for --check <file> flag
+    if let Some(idx) = args.iter().position(|a| a == "--check") {
+        let file_arg = args.get(idx + 1).ok_or_else(|| {
+            anyhow::anyhow!("--check requires a file path argument")
+        })?;
+
+        let conflicting_flags = ["--build", "--target", "--serve", "--flash", "--watch", "--output", "--full-flash", "--fast-deploy"];
+        for flag in &conflicting_flags {
+            if args.contains(&(*flag).to_string()) || (flag.starts_with("--target") && target.is_some()) {
+                bail!("Conflicting option '{}' cannot be used with --check", flag);
+            }
+        }
+
+        let path = Path::new(file_arg);
+        if !path.exists() {
+            bail!("Check file not found: {}", path.display());
+        }
+        if path.is_dir() {
+            bail!("--check does not support directories; specify a source file (.bxs, .bx, or .bxm)");
+        }
+        if path.extension().and_then(|s| s.to_str()) == Some("bxb") {
+            bail!("--check cannot validate compiled bytecode (.bxb) files; provide a source file (.bxs, .bx, or .bxm)");
+        }
+
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        if !matches!(ext, "bxs" | "bx" | "bxm") {
+            bail!("Unsupported file extension '.{}' for syntax checking. Expected .bxs, .bx, or .bxm", ext);
+        }
+
+        let source = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read file for syntax check: {}", path.display()))?;
+        
+        let parse_result = if ext == "bxm" {
+            parser::parse_bxm(&source, path.to_str())
+        } else {
+            parser::parse(&source, path.to_str())
+        };
+
+        match parse_result {
+            Ok(_) => {
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    
     let webroot = if let Some(idx) = args.iter().position(|a| a == "--webroot") {
         args.get(idx + 1)
             .cloned()
@@ -1118,6 +1176,14 @@ fn print_usage() {
     println!(
         "  --module <path>     Load a BoxLang module directory (may be specified multiple times)"
     );
+
+    //================================================
+    // Document the new --check <file> flag
+    //==============================================
+
+    println!("  --check <file>      Validate BoxLang source syntax (.bxs, .bx, .bxm) without execution");
+    println!("                      (Note: performs syntax checking only; not static type checking or dependency validation)");
+    println!("                      Example: matchbox --check script.bxs");
     println!("\nCommands:");
     println!("  esp32-doctor        Check ESP32 build/flash prerequisites and print fixes");
     println!("  lambda invoke <path> --event <event.json>");
